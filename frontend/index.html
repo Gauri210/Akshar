@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MODI recognition</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>MODI script recognition</h1>
+    <div class="controls">
+      <select id="model" aria-label="Model">
+        <option value="yolo">YOLO (detection)</option>
+        <option value="baseline">LDA (baseline)</option>
+        <option value="cnn">CNN with SVM head</option>
+      </select>
+      <button id="toggle">Start camera</button>
+      <span id="status">idle</span>
+    </div>
+    <div class="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="readout">
+      <div>Text: <strong id="text">-</strong></div>
+      <div>Server latency: <span id="latency">-</span> ms</div>
+      <div>Round-trip FPS: <span id="fps">-</span></div>
+    </div>
+  </main>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Training / experiments (backend has its own requirements.txt)
+torch
+torchvision
+scikit-learn
+matplotlib
+numpy
+opencv-python-headless
+joblib
+ultralytics

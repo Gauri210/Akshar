@@ -2,8 +2,7 @@
 
 Real-time recognition of MODI characters. The main system is a YOLO detector; it is benchmarked
 against two baselines: Fisher LDA on raw pixels, and a CNN whose output layer is a linear SVM
-(squared hinge loss). Served through FastAPI and a webcam frontend. Built for the Foundations of
-Machine Learning mini project; designed to grow into a longer research project.
+(squared hinge loss). Served through FastAPI and a webcam frontend.
 
 ## Layout
 
@@ -43,15 +42,6 @@ cd backend && pip install -r requirements-dev.txt && uvicorn app.main:app --relo
 ```
 
 Run tests: `cd backend && pytest`.
-
-## Status
-
-- [x] Backend, inference wrappers, frontend, Docker
-- [x] Subsampling, baseline, CNN, scene generator, YOLO training scripts
-- [ ] Train all models and fill in `reports/`
-- [ ] Real-photo test set (50-100 images) to measure the synthetic-to-real gap
-- [ ] Deploy on AWS (see `docs/aws_deploy.md`)
-- [ ] Report: LDA vs CNN (SVM head) vs YOLO
 
 ## Notes and known gaps
 

@@ -20,7 +20,10 @@
    curl localhost:8000/models
    ```
 
-## 2. HTTPS (required for webcam access)
+## 2. HTTPS (needed if the page is served over HTTPS)
+The drawing canvas needs no camera permission, so HTTPS is optional for it. Browsers do block an
+HTTPS page (S3/CloudFront) from calling an HTTP API, so set this up if you host the page that way.
+
 Point a domain or subdomain at the instance's Elastic IP, then add an Nginx server block:
 
 ```nginx

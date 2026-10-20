@@ -22,7 +22,7 @@ def test_health():
 def test_models_lists_all():
     with TestClient(app) as c:
         j = c.get("/models").json()
-        assert set(j["available"]) | set(j["unavailable"]) == {"yolo", "baseline", "cnn"}
+        assert set(j["available"]) | set(j["unavailable"]) == {"yolo", "cnn_svc"}
 
 
 def test_unknown_model_404():

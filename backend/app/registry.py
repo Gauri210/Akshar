@@ -6,21 +6,16 @@ log = logging.getLogger("registry")
 
 
 def _make_yolo():
-    from ml.yolo_model import YoloDetector
-    return YoloDetector(config.MODELS_DIR / config.YOLO_FILE, config.CONF_THRESHOLD, config.YOLO_IMGSZ)
+    from ml.yolo_model import YoloModel
+    return YoloModel(config.MODELS_DIR / config.YOLO_FILE, config.CONF_THRESHOLD, config.YOLO_IMGSZ)
 
 
-def _make_baseline():
-    from ml.baseline_model import BaselineClassifier
-    return BaselineClassifier(config.MODELS_DIR / config.BASELINE_FILE)
+def _make_cnn_svc():
+    from ml.cnn_model import CnnSvcClassifier
+    return CnnSvcClassifier(config.MODELS_DIR / config.CNN_FILE, config.MODELS_DIR / config.SVC_FILE)
 
 
-def _make_cnn():
-    from ml.cnn_model import CnnClassifier
-    return CnnClassifier(config.MODELS_DIR / config.CNN_FILE)
-
-
-FACTORIES = {"yolo": _make_yolo, "baseline": _make_baseline, "cnn": _make_cnn}
+FACTORIES = {"yolo": _make_yolo, "cnn_svc": _make_cnn_svc}
 
 
 class ModelRegistry:

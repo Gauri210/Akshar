@@ -1,96 +1,95 @@
-const SEND_INTERVAL_MS = 200; // ~5 frames per second
-const MAX_WIDTH = 640;
+const PREDICT_DELAY_MS = 500; // wait this long after the pen lifts before predicting
 
-const video = document.getElementById("video");
-const overlay = document.getElementById("overlay");
+const pad = document.getElementById("pad");
+const ctx = pad.getContext("2d");
 const modelSel = document.getElementById("model");
-const toggleBtn = document.getElementById("toggle");
-const statusEl = document.getElementById("status");
+const penEl = document.getElementById("pen");
+const clearBtn = document.getElementById("clear");
 const textEl = document.getElementById("text");
+const top3El = document.getElementById("top3");
 const latencyEl = document.getElementById("latency");
-const fpsEl = document.getElementById("fps");
+const statusEl = document.getElementById("status");
 
-const grab = document.createElement("canvas");
-let ws = null, timer = null, stream = null, busy = false, lastReply = 0;
+let drawing = false, last = null, timer = null, hasInk = false, reqId = 0;
 
-const wsBase = () => window.API_BASE.replace(/^http/, "ws");
-
-function connect() {
-  if (ws) ws.close();
-  ws = new WebSocket(`${wsBase()}/ws/${modelSel.value}`);
-  ws.onopen = () => (statusEl.textContent = "connected");
-  ws.onclose = () => { statusEl.textContent = "disconnected"; busy = false; };
-  ws.onerror = () => (statusEl.textContent = "connection error");
-  ws.onmessage = (ev) => {
-    busy = false;
-    const r = JSON.parse(ev.data);
-    if (r.error) { statusEl.textContent = r.error; return; }
-    statusEl.textContent = "connected";
-    textEl.textContent = r.text || "-";
-    latencyEl.textContent = r.latency_ms.toFixed(1);
-    const now = performance.now();
-    if (lastReply) fpsEl.textContent = (1000 / (now - lastReply)).toFixed(1);
-    lastReply = now;
-    draw(r);
-  };
+function clearPad() {
+  clearTimeout(timer);
+  reqId++; // any reply still in flight is now stale
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, pad.width, pad.height);
+  hasInk = false;
+  textEl.textContent = "-";
+  top3El.textContent = "-";
+  latencyEl.textContent = "-";
+  statusEl.textContent = "draw a character";
 }
 
-function draw(r) {
-  const ctx = overlay.getContext("2d");
-  overlay.width = video.clientWidth;
-  overlay.height = video.clientHeight;
-  ctx.clearRect(0, 0, overlay.width, overlay.height);
-  const sx = overlay.width / r.image_size[0];
-  const sy = overlay.height / r.image_size[1];
-  ctx.lineWidth = 2;
-  ctx.font = "16px system-ui";
-  for (const d of r.detections) {
-    if (!d.box) continue;
-    const [x1, y1, x2, y2] = d.box;
-    ctx.strokeStyle = "#00e676";
-    ctx.strokeRect(x1 * sx, y1 * sy, (x2 - x1) * sx, (y2 - y1) * sy);
-    const label = `${d.label} ${(d.confidence * 100).toFixed(0)}%`;
-    const w = ctx.measureText(label).width + 8;
-    ctx.fillStyle = "#00e676";
-    ctx.fillRect(x1 * sx, Math.max(0, y1 * sy - 22), w, 22);
-    ctx.fillStyle = "#000";
-    ctx.fillText(label, x1 * sx + 4, Math.max(16, y1 * sy - 6));
-  }
+function pos(e) {
+  const r = pad.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * pad.width / r.width, y: (e.clientY - r.top) * pad.height / r.height };
 }
 
-function sendFrame() {
-  if (busy || !ws || ws.readyState !== WebSocket.OPEN || !video.videoWidth) return;
-  const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
-  grab.width = Math.round(video.videoWidth * scale);
-  grab.height = Math.round(video.videoHeight * scale);
-  grab.getContext("2d").drawImage(video, 0, 0, grab.width, grab.height);
-  busy = true;
-  ws.send(grab.toDataURL("image/jpeg", 0.7));
+function stroke(from, to) {
+  ctx.strokeStyle = "#000";
+  ctx.fillStyle = "#000";
+  ctx.lineWidth = Number(penEl.value);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+  hasInk = true;
 }
 
-async function start() {
+pad.addEventListener("pointerdown", (e) => {
+  pad.setPointerCapture(e.pointerId);
+  clearTimeout(timer);
+  drawing = true;
+  last = pos(e);
+  stroke(last, last); // a tap leaves a dot
+});
+
+pad.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  const p = pos(e);
+  stroke(last, p);
+  last = p;
+});
+
+function endStroke() {
+  if (!drawing) return;
+  drawing = false;
+  timer = setTimeout(predict, PREDICT_DELAY_MS);
+}
+pad.addEventListener("pointerup", endStroke);
+pad.addEventListener("pointercancel", endStroke);
+
+async function predict() {
+  if (!hasInk) return;
+  const id = ++reqId;
+  statusEl.textContent = "predicting...";
+  const blob = await new Promise((resolve) => pad.toBlob(resolve, "image/png"));
+  const body = new FormData();
+  body.append("file", blob, "drawing.png");
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    const res = await fetch(`${window.API_BASE}/predict/${modelSel.value}`, { method: "POST", body });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || res.statusText);
+    }
+    const r = await res.json();
+    if (id !== reqId) return; // cleared or redrawn while waiting
+    textEl.textContent = r.text || "-";
+    top3El.textContent = r.detections
+      .map((d) => `${d.label} ${(d.confidence * 100).toFixed(0)}%`).join(", ") || "-";
+    latencyEl.textContent = r.latency_ms.toFixed(1);
+    statusEl.textContent = "done";
   } catch (e) {
-    statusEl.textContent = "camera blocked (HTTPS or permission needed)";
-    return;
+    if (id === reqId) statusEl.textContent = `error: ${e.message}`;
   }
-  video.srcObject = stream;
-  connect();
-  timer = setInterval(sendFrame, SEND_INTERVAL_MS);
-  toggleBtn.textContent = "Stop camera";
 }
 
-function stop() {
-  clearInterval(timer);
-  if (ws) ws.close();
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  video.srcObject = null;
-  overlay.getContext("2d").clearRect(0, 0, overlay.width, overlay.height);
-  toggleBtn.textContent = "Start camera";
-  statusEl.textContent = "idle";
-  stream = null;
-}
-
-toggleBtn.onclick = () => (stream ? stop() : start());
-modelSel.onchange = () => { if (stream) connect(); };
+clearBtn.onclick = clearPad;
+modelSel.onchange = () => { if (hasInk) predict(); };
+clearPad();

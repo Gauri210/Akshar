@@ -1,9 +1,12 @@
-"""CNN for MODI character classification with a linear-SVM output layer.
+"""CNN + SVC for MODI character classification.
 
---head svm      final Linear layer trained with squared hinge loss (L2-SVM, multi-class), as in
-                "Deep Learning using Linear Support Vector Machines" (Tang, 2013). --wd supplies
-                the margin regulariser.
---head softmax  same network trained with cross-entropy (use for an ablation).
+Stage 1: train a small CNN with cross-entropy on cropped characters.
+Stage 2: take the 128-d vector from its penultimate layer as features, standardise them
+         (scaler fitted on the training set only) and fit an sklearn SVC on them. The kernel and C
+         are chosen on the validation set, then the SVC is wrapped in a sigmoid calibrator so the
+         API can report probabilities.
+
+Both stages use the shared split from common.py. The report lists CNN-alone and CNN+SVC accuracy.
 
 Expected data layout (one folder per class):
     DATA_ROOT/class_a/*.png, DATA_ROOT/class_b/*.png, ...
@@ -17,40 +20,43 @@ import random
 import time
 from pathlib import Path
 
+import joblib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 from common import load_crops, select_and_split
 
+# (kernel, C) candidates for the SVC, compared on the validation set
+SVC_CANDIDATES = [("linear", 1), ("rbf", 1), ("rbf", 10), ("rbf", 100)]
+
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--data", required=True, help="root folder with one subfolder per class")
-    p.add_argument("--out", default=None, help="default: models/cnn_<head>.pth")
-    p.add_argument("--report-dir", default=None, help="default: reports/cnn_<head>")
+    p.add_argument("--out", default="models/cnn.pth", help="CNN weights")
+    p.add_argument("--svc-out", default="models/svc.joblib", help="scaler + SVC")
+    p.add_argument("--report-dir", default="reports/cnn_svc")
     p.add_argument("--per-class", type=int, default=300,
                    help="images kept per class (0 = all); use the same value for every script")
     p.add_argument("--img", type=int, default=64)
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--bs", type=int, default=64)
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--head", choices=["svm", "softmax"], default="svm",
-                   help="svm: linear SVM output layer (squared hinge loss); softmax: cross-entropy")
-    p.add_argument("--wd", type=float, default=1e-4,
-                   help="weight decay (acts as the SVM margin regulariser)")
+    p.add_argument("--wd", type=float, default=1e-4, help="weight decay")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--workers", type=int, default=2)
-    args = p.parse_args()
-    args.out = args.out or f"models/cnn_{args.head}.pth"
-    args.report_dir = args.report_dir or f"reports/cnn_{args.head}"
-    return args
+    return p.parse_args()
 
 
 def set_seed(seed):
@@ -72,8 +78,12 @@ class ModiCNN(nn.Module):
         flat = 64 * (img // 4) * (img // 4)
         self.classifier = nn.Sequential(
             nn.Flatten(), nn.Linear(flat, 128), nn.ReLU(), nn.Dropout(0.3),
-            nn.Linear(128, num_classes),  # the "SVM layer" when --head svm
+            nn.Linear(128, num_classes),
         )
+
+    def embed(self, x):
+        """128-d feature vector: everything before the last Linear layer. This is the SVC's input."""
+        return self.classifier[:-1](self.features(x))
 
     def forward(self, x):
         return self.classifier(self.features(x))
@@ -107,8 +117,15 @@ def build_data(args):
         return DataLoader(CropDataset(crops[ids], labels[ids], augment), batch_size=args.bs,
                           shuffle=shuffle, num_workers=args.workers)
 
+    loaders = {
+        "train": mk("train", True, True),           # augmented, for training the CNN
+        "train_eval": mk("train", False, False),    # same images, no augmentation, for features
+        "val": mk("val", False, False),
+        "test": mk("test", False, False),
+    }
+    y = {k: labels[split[k]] for k in ("train", "val", "test")}
     sizes = tuple(len(split[k]) for k in ("train", "val", "test"))
-    return mk("train", True, True), mk("val", False, False), mk("test", False, False), classes, sizes
+    return loaders, y, classes, sizes
 
 
 @torch.no_grad()
@@ -127,18 +144,40 @@ def evaluate(model, loader, device, criterion=None):
 
 
 @torch.no_grad()
-def time_inference(model, device, img, n=200):
+def embed(model, loader, device):
+    model.eval()
+    return torch.cat([model.embed(x.to(device)).cpu() for x, _ in loader]).numpy()
+
+
+def fit_svc(Ztr, ytr, Zva, yva):
+    """Pick (kernel, C) on the validation set; return (pipeline, candidate results, best config)."""
+    scaler = StandardScaler().fit(Ztr)  # statistics from the training set only
+    Str, Sva = scaler.transform(Ztr), scaler.transform(Zva)
+    results, best_cfg, best_val = [], None, -1.0
+    for kernel, C in SVC_CANDIDATES:
+        svc = SVC(kernel=kernel, C=C, gamma="scale").fit(Str, ytr)
+        tr = accuracy_score(ytr, svc.predict(Str))
+        va = accuracy_score(yva, svc.predict(Sva))
+        results.append({"kernel": kernel, "C": C, "train_acc": float(tr), "val_acc": float(va)})
+        print(f"SVC kernel={kernel:6s} C={C:<4} train={tr:.4f} val={va:.4f}")
+        if va > best_val:
+            best_cfg, best_val = (kernel, C), va
+    # Sigmoid calibration gives predict_proba for the API (SVC(probability=True) is deprecated)
+    final = CalibratedClassifierCV(SVC(kernel=best_cfg[0], C=best_cfg[1], gamma="scale"),
+                                   method="sigmoid", cv=3, ensemble=False).fit(Str, ytr)
+    return Pipeline([("scale", scaler), ("svc", final)]), results, best_cfg
+
+
+@torch.no_grad()
+def time_chain(model, pipe, device, img, n=100):
+    """Milliseconds per image for the whole CNN -> SVC chain (as the API runs it)."""
     model.eval()
     x = torch.randn(1, 1, img, img, device=device)
-    for _ in range(20):
-        model(x)
-    if device.type == "cuda":
-        torch.cuda.synchronize()
+    for _ in range(10):
+        pipe.predict_proba(model.embed(x).cpu().numpy())
     t = time.perf_counter()
     for _ in range(n):
-        model(x)
-    if device.type == "cuda":
-        torch.cuda.synchronize()
+        pipe.predict_proba(model.embed(x).cpu().numpy())
     return (time.perf_counter() - t) / n * 1000
 
 
@@ -149,56 +188,61 @@ def main():
     report_dir = Path(args.report_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.svc_out).parent.mkdir(parents=True, exist_ok=True)
 
-    train_dl, val_dl, test_dl, classes, sizes = build_data(args)
-    print(f"device={device} head={args.head} classes={len(classes)} train/val/test={sizes}")
+    loaders, y, classes, sizes = build_data(args)
+    print(f"device={device} classes={len(classes)} train/val/test={sizes}")
 
     model = ModiCNN(len(classes), args.img).to(device)
-    if args.head == "svm":
-        criterion = nn.MultiMarginLoss(p=2, margin=1.0)  # squared hinge = L2-SVM
-    else:
-        criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
     sched = torch.optim.lr_scheduler.StepLR(opt, step_size=5, gamma=0.5)
 
+    # ---- stage 1: CNN ----
     history, best_val = [], 0.0
     for epoch in range(1, args.epochs + 1):
         model.train()
         run_loss, n = 0.0, 0
-        for x, y in train_dl:
-            x, y = x.to(device), y.to(device)
+        for x, yb in loaders["train"]:
+            x, yb = x.to(device), yb.to(device)
             opt.zero_grad()
-            loss = criterion(model(x), y)
+            loss = criterion(model(x), yb)
             loss.backward()
             opt.step()
-            run_loss += loss.item() * len(y)
-            n += len(y)
+            run_loss += loss.item() * len(yb)
+            n += len(yb)
         sched.step()
-        val_acc, val_loss, _, _ = evaluate(model, val_dl, device, criterion)
+        val_acc, val_loss, _, _ = evaluate(model, loaders["val"], device, criterion)
         history.append(dict(epoch=epoch, train_loss=run_loss / n, val_loss=val_loss, val_acc=float(val_acc)))
         print(f"epoch {epoch:02d} train_loss={run_loss / n:.4f} val_loss={val_loss:.4f} val_acc={val_acc:.4f}")
         if val_acc > best_val:
             best_val = val_acc
-            torch.save({"state_dict": model.state_dict(), "classes": classes, "img": args.img,
-                        "head": args.head}, args.out)
+            torch.save({"state_dict": model.state_dict(), "classes": classes, "img": args.img}, args.out)
 
     ckpt = torch.load(args.out, map_location=device)
     model.load_state_dict(ckpt["state_dict"])
-    test_acc, _, preds, labels = evaluate(model, test_dl, device)
-    ms = time_inference(model, device, args.img)
-    print(f"\nTEST accuracy={test_acc:.4f} | inference={ms:.2f} ms/image on {device.type}")
+    cnn_test_acc, _, _, _ = evaluate(model, loaders["test"], device)
+    print(f"\nCNN alone: TEST accuracy={cnn_test_acc:.4f}")
+
+    # ---- stage 2: SVC on the CNN's 128-d features ----
+    Z = {k: embed(model, loaders[k], device) for k in ("train_eval", "val", "test")}
+    pipe, svc_results, best_cfg = fit_svc(Z["train_eval"], y["train"], Z["val"], y["val"])
+    preds = pipe.predict(Z["test"])
+    svc_test_acc = float(accuracy_score(y["test"], preds))
+    ms = time_chain(model, pipe, device, args.img)
+    print(f"CNN + SVC {best_cfg}: TEST accuracy={svc_test_acc:.4f} | {ms:.2f} ms/image on {device.type}")
+    joblib.dump({"pipeline": pipe, "classes": classes, "img": args.img, "name": "cnn_svc"}, args.svc_out)
 
     names = list(range(len(classes)))
-    report = classification_report(labels, preds, labels=names, target_names=classes,
+    report = classification_report(y["test"], preds, labels=names, target_names=classes,
                                    digits=3, zero_division=0)
     (report_dir / "classification_report.txt").write_text(report)
     print(report)
 
-    cm = confusion_matrix(labels, preds, labels=names)
     plt.figure(figsize=(12, 10))
-    plt.imshow(cm, cmap="Blues")
+    plt.imshow(confusion_matrix(y["test"], preds, labels=names), cmap="Blues")
     plt.colorbar()
-    plt.title(f"Confusion matrix (test) - CNN, {args.head} head")
+    plt.title("Confusion matrix (test) - CNN + SVC")
     plt.xlabel("Predicted class index")
     plt.ylabel("True class index")
     plt.tight_layout()
@@ -217,12 +261,12 @@ def main():
     plt.close()
 
     (report_dir / "metrics.json").write_text(json.dumps({
-        "head": args.head, "weight_decay": args.wd,
-        "test_accuracy": float(test_acc), "best_val_accuracy": float(best_val),
-        "inference_ms_per_image": ms, "device": device.type,
+        "cnn_test_accuracy": float(cnn_test_acc), "cnn_best_val_accuracy": float(best_val),
+        "cnn_svc_test_accuracy": svc_test_acc, "svc_best": {"kernel": best_cfg[0], "C": best_cfg[1]},
+        "svc_candidates": svc_results, "inference_ms_per_image": ms, "device": device.type,
         "num_classes": len(classes), "split_sizes": sizes, "history": history,
     }, indent=2))
-    print(f"saved: {args.out} and reports in {report_dir}/")
+    print(f"saved: {args.out}, {args.svc_out} and reports in {report_dir}/")
 
 
 if __name__ == "__main__":

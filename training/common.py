@@ -1,8 +1,9 @@
 """Shared dataset selection, split and loading.
 
-The LDA baseline, the CNN and the YOLO scene generator all call select_and_split() with the same
+train_cnn.py (CNN + SVC) and train_yolo_cls.py (YOLO) both call select_and_split() with the same
 folder, --per-class and --seed, so every source image lands in the same train/val/test partition
-for every method. Run them with identical values for those three arguments.
+for both methods. Run them with identical values for those three arguments.
+(generate_scenes.py, for future multi-character work, uses the same function.)
 """
 import sys
 from pathlib import Path

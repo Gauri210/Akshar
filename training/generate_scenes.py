@@ -2,8 +2,9 @@
 
 Source images are split into train/val/test BEFORE pasting, so no source character
 image appears in more than one split (no leakage). The split comes from common.select_and_split,
-the same function the LDA and CNN scripts use, so all three methods are tested on scenes and
-crops built from the same held-out source images. Pass the same --per-class and --seed to all.
+the same function the classification scripts use, so scenes and crops are built from the same
+held-out source images. Pass the same --per-class and --seed to all. Not used in the current
+scope (one character at a time); kept for the future multi-character detector (train_yolo.py).
 
 Usage:
     python training/generate_scenes.py --src data/processed/offline_subset \

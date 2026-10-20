@@ -45,12 +45,6 @@ def crop_square(gray: np.ndarray, size: int, pad: float = 0.15) -> np.ndarray:
     return cv2.resize(canvas, (size, size), interpolation=cv2.INTER_AREA)
 
 
-def flat_vector(gray: np.ndarray, size: int = 32) -> np.ndarray:
-    """Flat pixel vector for the LDA baseline (ink = high values)."""
-    sq = crop_square(gray, size)
-    return (1.0 - sq.astype(np.float32) / 255.0).ravel()
-
-
 def cnn_array(gray: np.ndarray, size: int = 64) -> np.ndarray:
     """(1, 1, size, size) float32 array normalised to [-1, 1]."""
     sq = crop_square(gray, size).astype(np.float32) / 255.0

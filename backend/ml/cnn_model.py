@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import numpy as np
+
 from ml.preprocessing import cnn_array, to_gray
 
 
@@ -20,26 +22,36 @@ def build_model(num_classes: int, img: int = 64):
                 nn.Linear(128, num_classes),
             )
 
+        def embed(self, x):
+            return self.classifier[:-1](self.features(x))
+
         def forward(self, x):
             return self.classifier(self.features(x))
 
     return ModiCNN()
 
 
-class CnnClassifier:
-    name = "cnn"
+class CnnSvcClassifier:
+    """CNN feature extractor (128-d) followed by a scaler + calibrated SVC."""
 
-    def __init__(self, path):
-        path = Path(path)
-        if not path.exists():
-            raise FileNotFoundError(f"CNN weights not found: {path}")
+    name = "cnn_svc"
+
+    def __init__(self, cnn_path, svc_path):
+        cnn_path, svc_path = Path(cnn_path), Path(svc_path)
+        for p in (cnn_path, svc_path):
+            if not p.exists():
+                raise FileNotFoundError(f"model file not found: {p}")
+        import joblib
         import torch
 
         self.torch = torch
-        ckpt = torch.load(path, map_location="cpu")
+        ckpt = torch.load(cnn_path, map_location="cpu")
+        bundle = joblib.load(svc_path)
+        if list(ckpt["classes"]) != list(bundle["classes"]):
+            raise ValueError("CNN weights and SVC were trained on different classes")
         self.classes = ckpt["classes"]
         self.size = ckpt["img"]
-        self.head = ckpt.get("head", "softmax")
+        self.svc = bundle["pipeline"]
         self.model = build_model(len(self.classes), self.size)
         self.model.load_state_dict(ckpt["state_dict"])
         self.model.eval()
@@ -48,15 +60,11 @@ class CnnClassifier:
         torch = self.torch
         x = torch.from_numpy(cnn_array(to_gray(bgr), self.size))
         with torch.no_grad():
-            scores = self.model(x)[0]
-        if self.head == "svm":
-            # SVM decision scores are not probabilities. Map the margin range [-1, 1] to [0, 1]
-            # for display only; the ranking and the predicted label come from the raw scores.
-            _, idx = scores.topk(min(topk, len(self.classes)))
-            conf = ((scores[idx] + 1) / 2).clamp(0, 1)
-        else:
-            conf, idx = torch.softmax(scores, dim=0).topk(min(topk, len(self.classes)))
+            z = self.model.embed(x).numpy()
+        proba = self.svc.predict_proba(z)[0]
+        order = np.argsort(proba)[::-1][:topk]
         return [
-            {"label": self.classes[int(i)], "confidence": float(c), "box": None}
-            for c, i in zip(conf, idx)
+            {"label": self.classes[int(self.svc.classes_[i])],
+             "confidence": float(proba[i]), "box": None}
+            for i in order
         ]

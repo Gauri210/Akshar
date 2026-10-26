@@ -6,7 +6,7 @@ from ml.preprocessing import cnn_array, to_gray
 
 
 def build_model(num_classes: int, img: int = 64):
-    """Keep in sync with ModiCNN in training/train_cnn.py."""
+    """Keep in sync with ModiCNN in notebooks/02_cnn_svc.ipynb."""
     import torch.nn as nn
 
     class ModiCNN(nn.Module):

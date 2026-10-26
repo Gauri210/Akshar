@@ -2,9 +2,9 @@
 
 ```mermaid
 flowchart TD
-    D[MODI-HChar<br/>isolated characters] --> S[subsample_dataset.py]
-    S --> C1[train_cnn.py<br/>CNN, then SVC on its features]
-    S --> Y1[train_yolo_cls.py<br/>YOLO classification]
+    D[MODI-HChar<br/>isolated characters] --> S[01_subsample_dataset]
+    S --> C1[02_cnn_svc<br/>CNN, then SVC on its features]
+    S --> Y1[03_yolo_classification<br/>YOLO classification]
     C1 --> M[(models/)]
     Y1 --> M
     M --> API[FastAPI backend<br/>/predict, /ws]
@@ -15,7 +15,7 @@ flowchart TD
 
 | Part | Role |
 |---|---|
-| `training/` | Offline pipeline: subsample, train CNN + SVC, train YOLO classification |
+| `notebooks/` | Offline pipeline (Jupyter): subsample, train CNN + SVC, train YOLO classification |
 | `backend/ml/` | Inference wrappers (YOLO, CNN + SVC) and shared preprocessing |
 | `backend/app/` | FastAPI app: model registry, REST and WebSocket endpoints |
 | `frontend/` | Static page: a drawing canvas that posts the drawing and shows the prediction |

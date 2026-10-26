@@ -13,7 +13,7 @@ mini project; designed to grow into a longer research project (multi-character d
 
 ```
 backend/    FastAPI app (app/), inference wrappers (ml/), Dockerfile, tests
-training/   subsample, CNN + SVC, YOLO classification (+ future detection scripts)
+notebooks/  all training code: 01 subsample, 02 CNN + SVC, 03 YOLO classification, 04-05 future detector
 frontend/   static drawing-canvas page (HTML/JS)
 data/       raw/ and processed/ (git-ignored)
 models/     trained weights (git-ignored)
@@ -27,13 +27,8 @@ docs/       architecture and AWS deployment notes
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 1. subsample (use --max-classes 20 for a first trial, drop it for all 57 classes)
-python training/subsample_dataset.py --src data/raw/modi_hchar_full \
-    --dst data/processed/offline_subset --per-class 300 --max-classes 20
-
-# 2. train both models (same --data, --per-class and --seed = same split)
-python training/train_cnn.py --data data/processed/offline_subset
-python training/train_yolo_cls.py --data data/processed/offline_subset
+# 1. subsample, 2. train both models: run the notebooks in order
+jupyter lab notebooks/      # 01_subsample_dataset, 02_cnn_svc, 03_yolo_classification
 
 # 3. serve
 cp .env.example .env
@@ -41,6 +36,9 @@ docker compose up --build        # backend :8000, frontend :8080
 # or without Docker:
 cd backend && pip install -r requirements-dev.txt && uvicorn app.main:app --reload
 ```
+
+Notebook settings are in the second cell. Keep `DATA`, `PER_CLASS` and `SEED` identical in 02 and 03 so both
+models use the same split. Start Jupyter from the project root (or `notebooks/`).
 
 Run tests: `cd backend && pytest`.
 
@@ -62,13 +60,13 @@ and curves under `reports/`. The comparison table is `reports/cnn_svc/metrics.js
   (`backend/ml/preprocessing.py`). The canvas page sends the drawing as a PNG (black pen on white).
   Stroke thickness relative to the character matters to the models, so use the pen-size slider to
   match the look of the training images.
-- The split is shared through `training/common.py`; it only holds if `--data`, `--per-class` and
-  `--seed` are identical across the two training scripts.
+- The split comes from `select_and_split` (shared cell in notebooks 02 to 05); it only holds if `DATA`,
+  `PER_CLASS` and `SEED` are identical in 02 and 03.
 - YOLO flips are disabled during training: a mirrored MODI character is a different character.
 - The SVC gets probabilities from sigmoid calibration. Train and serve with the same scikit-learn
   version, since the SVC is stored with joblib.
 - The dataset folder layout may be flat or grouped (digits / consonants / vowels); the subsample
-  script flattens it into one folder per character.
+  notebook flattens it into one folder per character.
 - Split is random per source image. If writer IDs exist, split by writer.
-- Not in the current scope, kept for later: `generate_scenes.py` and `train_yolo.py` (synthetic
+- Not in the current scope, kept for later: notebooks 04 and 05 (synthetic
   multi-character scenes and a YOLO detector that reads a line of text).

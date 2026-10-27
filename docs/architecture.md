@@ -22,7 +22,7 @@ flowchart TD
 
 ## CNN + SVC
 
-1. The CNN (Conv32, Conv64, Dense128, Dense57) is trained with cross-entropy.
+1. The CNN (four Conv blocks 32-64-128-256, Dense128, Dense57) is trained with cross-entropy.
 2. Its 128-d penultimate layer is used as a feature extractor. Features are standardised (scaler fitted
    on the training set only) and an SVC is fitted on them; kernel and C are chosen on the validation set.
 3. The SVC is wrapped in a sigmoid calibrator to give probabilities. The API runs CNN, scaler, SVC in order.

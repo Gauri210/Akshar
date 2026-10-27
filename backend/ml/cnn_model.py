@@ -12,13 +12,13 @@ def build_model(num_classes: int, img: int = 64):
     class ModiCNN(nn.Module):
         def __init__(self):
             super().__init__()
-            self.features = nn.Sequential(
-                nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2),
-            )
-            flat = 64 * (img // 4) * (img // 4)
+
+            def block(i, o):
+                return [nn.Conv2d(i, o, 3, padding=1), nn.BatchNorm2d(o), nn.ReLU(), nn.MaxPool2d(2)]
+
+            self.features = nn.Sequential(*block(1, 32), *block(32, 64), *block(64, 128), *block(128, 256))
             self.classifier = nn.Sequential(
-                nn.Flatten(), nn.Linear(flat, 128), nn.ReLU(), nn.Dropout(0.3),
+                nn.Flatten(), nn.Linear(256 * (img // 16) ** 2, 128), nn.ReLU(), nn.Dropout(0.3),
                 nn.Linear(128, num_classes),
             )
 

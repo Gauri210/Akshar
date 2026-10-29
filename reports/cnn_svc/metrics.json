@@ -1,0 +1,36 @@
+{
+  "cnn_test_accuracy": 0.7481481481481481,
+  "cnn_svc_test_accuracy": 0.7855750487329435,
+  "svc_best": {
+    "kernel": "rbf",
+    "C": 10
+  },
+  "svc_candidates": [
+    {
+      "kernel": "linear",
+      "C": 1,
+      "train_acc": 0.8399331662489558,
+      "val_acc": 0.7871345029239766
+    },
+    {
+      "kernel": "rbf",
+      "C": 1,
+      "train_acc": 0.8359231411862991,
+      "val_acc": 0.7847953216374269
+    },
+    {
+      "kernel": "rbf",
+      "C": 10,
+      "train_acc": 0.8655806182121971,
+      "val_acc": 0.791812865497076
+    },
+    {
+      "kernel": "rbf",
+      "C": 100,
+      "train_acc": 0.9036758563074353,
+      "val_acc": 0.7758284600389863
+    }
+  ],
+  "inference_ms_per_image": 208.9587439999741,
+  "num_classes": 57
+}

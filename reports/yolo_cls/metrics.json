@@ -1,0 +1,13 @@
+{
+  "top1_accuracy": 0.8167641162872314,
+  "top5_accuracy": 0.973099410533905,
+  "inference_ms_per_image": 19.445510000077775,
+  "num_classes": 57,
+  "split_sizes": {
+    "train": 11970,
+    "val": 2565,
+    "test": 2565
+  },
+  "weights": "yolov8n-cls.pt",
+  "imgsz": 64
+}

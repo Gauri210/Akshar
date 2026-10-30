@@ -7,13 +7,8 @@ venv/
 runs/
 node_modules/
 
-# data and weights are large; keep them out of git
+# data is large; keep it out of git
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-models/*
-!models/.gitkeep
-*.pt
-*.pth
-*.joblib

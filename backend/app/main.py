@@ -18,7 +18,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MODI Recognition API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
+    allow_origins=[
+        "http://akshar-demo-gauri.s3-website.ap-south-1.amazonaws.com"
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

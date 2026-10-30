@@ -46,13 +46,6 @@ Outputs: `models/cnn.pth`, `models/svc.joblib`, `models/yolo_cls.pt`, and metric
 and curves under `reports/`. The comparison table is `reports/cnn_svc/metrics.json` against
 `reports/yolo_cls/metrics.json` (test accuracy and ms per image).
 
-## Status
-
-- [x] Backend, inference wrappers, drawing-canvas frontend, Docker
-- [x] Subsampling, CNN + SVC and YOLO classification training scripts
-- [ ] Train both models on real data and fill in `reports/`
-- [ ] Deploy on AWS (see `docs/aws_deploy.md`)
-- [ ] Report: CNN + SVC vs YOLO
 
 ## Notes
 
